@@ -1,6 +1,7 @@
 import type { Nav } from '../App'
 import { db, useLive } from '../db'
-import { fmt, Header, Macros } from '../ui'
+import { fmt, fmt1, Header, Macros } from '../ui'
+import { portionWord } from './GramsSheet'
 
 export function Recipes(props: { nav: Nav }) {
   const recipes = useLive(async () => {
@@ -24,6 +25,7 @@ export function Recipes(props: { nav: Nav }) {
                 <span class="li-sub">
                   {recipe.ingredients.length} ингр.
                   {recipe.cookedWeight ? ` · готовое ${fmt(recipe.cookedWeight)} г` : ''}
+                  {recipe.portions ? ` · ${fmt1(recipe.portions)} ${portionWord(recipe.portions)}` : ''}
                   {product && (
                     <>
                       {' '}

@@ -27,6 +27,8 @@ export interface Recipe {
   name: string
   ingredients: RecipeIngredient[]
   cookedWeight?: number
+  /** How many portions the dish is split into. */
+  portions?: number
   productId: number
 }
 
@@ -194,18 +196,32 @@ export async function computeRecipe(ingredients: RecipeIngredient[], cookedWeigh
   )
 }
 
-export async function saveRecipe(name: string, ingredients: RecipeIngredient[], cookedWeight: number | undefined, id?: number) {
-  const values = await computeRecipe(ingredients, cookedWeight)
+/** Weight of one portion: the finished dish (or raw ingredients) split evenly. */
+export function recipePortionGrams(ingredients: RecipeIngredient[], cookedWeight?: number, portions?: number): number | undefined {
+  if (!portions || portions <= 0) return undefined
+  const weight = cookedWeight && cookedWeight > 0 ? cookedWeight : ingredients.reduce((w, i) => w + i.grams, 0)
+  return weight > 0 ? weight / portions : undefined
+}
+
+export async function saveRecipe(
+  r: { name: string; ingredients: RecipeIngredient[]; cookedWeight?: number; portions?: number },
+  id?: number,
+) {
+  const { name, ingredients, cookedWeight, portions } = r
+  const values = {
+    ...(await computeRecipe(ingredients, cookedWeight)),
+    portionGrams: recipePortionGrams(ingredients, cookedWeight, portions),
+  }
   return db.transaction('rw', db.products, db.recipes, async () => {
     if (id) {
       const recipe = await db.recipes.get(id)
       if (!recipe) throw new Error('Рецепт не найден')
-      await db.recipes.update(id, { name, ingredients, cookedWeight })
+      await db.recipes.update(id, { name, ingredients, cookedWeight, portions })
       await db.products.update(recipe.productId, { name, ...values })
       return id
     }
     const productId = await db.products.add({ name, ...values, kind: 'recipe', usageCount: 0, lastUsedAt: Date.now() } as Product)
-    const recipeId = await db.recipes.add({ name, ingredients, cookedWeight, productId } as Recipe)
+    const recipeId = await db.recipes.add({ name, ingredients, cookedWeight, portions, productId } as Recipe)
     await db.products.update(productId, { recipeId })
     return recipeId
   })

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'preact/hooks'
 import type { Nav } from '../App'
 import { forGrams, recipePer100, sum } from '../calc'
-import { db, deleteRecipe, saveRecipe, useLive, type Product, type RecipeIngredient } from '../db'
+import { db, deleteRecipe, recipePortionGrams, saveRecipe, useLive, type Product, type RecipeIngredient } from '../db'
 import { fmt, fmt1, Header, NumField, parseNum, useAutoFocus } from '../ui'
 import { GramsSheet } from './GramsSheet'
 import { ProductSearch } from './ProductSearch'
@@ -10,6 +10,7 @@ export function RecipeEditor(props: { id?: number; nav: Nav }) {
   const [name, setName] = useState('')
   const [ingredients, setIngredients] = useState<RecipeIngredient[]>([])
   const [cooked, setCooked] = useState('')
+  const [portions, setPortions] = useState('')
   const [productId, setProductId] = useState<number>()
   const [picking, setPicking] = useState(false)
   const [adding, setAdding] = useState<Product>()
@@ -23,6 +24,7 @@ export function RecipeEditor(props: { id?: number; nav: Nav }) {
       setName(r.name)
       setIngredients(r.ingredients)
       setCooked(r.cookedWeight ? String(r.cookedWeight) : '')
+      setPortions(r.portions ? fmt1(r.portions) : '')
       setProductId(r.productId)
     })
   }, [props.id])
@@ -45,12 +47,15 @@ export function RecipeEditor(props: { id?: number; nav: Nav }) {
     known.map((r) => ({ per100g: r.product!, grams: r.grams })),
     cookedWeight,
   )
+  const portionCount = parseNum(portions) || undefined
+  const portionGrams = recipePortionGrams(ingredients, cookedWeight, portionCount)
+  const perPortion = portionGrams ? forGrams(per100, portionGrams) : undefined
   const valid = name.trim() !== '' && ingredients.length > 0
 
   async function save(e: Event) {
     e.preventDefault()
     if (!valid) return
-    await saveRecipe(name.trim(), ingredients, cookedWeight || undefined, props.id)
+    await saveRecipe({ name: name.trim(), ingredients, cookedWeight: cookedWeight || undefined, portions: portionCount }, props.id)
     props.nav.pop()
   }
 
@@ -128,6 +133,13 @@ export function RecipeEditor(props: { id?: number; nav: Nav }) {
           {fmt(rawWeight)} г.
         </p>
 
+        <NumField label="Порций в блюде (необязательно)" value={portions} onInput={setPortions} suffix="шт" placeholder="—" />
+        <p class="muted small">
+          {portionGrams
+            ? `1 порция ≈ ${fmt(portionGrams)} г. Блюдо можно будет записывать порциями, без взвешивания тарелки.`
+            : 'Укажите, на сколько порций делите блюдо, — тогда его можно будет записывать порциями.'}
+        </p>
+
         <div class="card result">
           <div>
             <span class="muted small">Всего в блюде</span>
@@ -140,6 +152,15 @@ export function RecipeEditor(props: { id?: number; nav: Nav }) {
               Б {fmt1(per100.protein)} · Ж {fmt1(per100.fat)} · У {fmt1(per100.carbs)}
             </span>
           </div>
+          {perPortion && (
+            <div>
+              <span class="muted small">1 порция ({fmt(portionGrams!)} г)</span>
+              <strong>{fmt(perPortion.kcal)} ккал</strong>
+              <span class="small">
+                Б {fmt1(perPortion.protein)} · Ж {fmt1(perPortion.fat)} · У {fmt1(perPortion.carbs)}
+              </span>
+            </div>
+          )}
         </div>
 
         <div class="row">

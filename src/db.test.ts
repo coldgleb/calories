@@ -13,7 +13,7 @@ describe('recipes', () => {
   it('stores a recipe as a searchable product', async () => {
     const c = await saveProduct(chicken)
     const r = await saveProduct(rice)
-    const id = await saveRecipe('Курица с рисом', [{ productId: c, grams: 500 }, { productId: r, grams: 200 }], 900)
+    const id = await saveRecipe({ name: 'Курица с рисом', ingredients: [{ productId: c, grams: 500 }, { productId: r, grams: 200 }], cookedWeight: 900 })
     const recipe = await db.recipes.get(id)
     const product = await db.products.get(recipe!.productId)
     expect(product!.kind).toBe('recipe')
@@ -23,10 +23,12 @@ describe('recipes', () => {
 
   it('recalculates a recipe when an ingredient changes', async () => {
     const c = await saveProduct(chicken)
-    const id = await saveRecipe('Курица', [{ productId: c, grams: 500 }], 400)
+    const id = await saveRecipe({ name: 'Курица', ingredients: [{ productId: c, grams: 500 }], cookedWeight: 400, portions: 4 })
     await saveProduct({ ...chicken, kcal: 120 }, c)
     const recipe = await db.recipes.get(id)
-    expect((await db.products.get(recipe!.productId))!.kcal).toBeCloseTo(150)
+    const product = (await db.products.get(recipe!.productId))!
+    expect(product.kcal).toBeCloseTo(150)
+    expect(product.portionGrams).toBe(100)
   })
 })
 
@@ -84,5 +86,23 @@ describe('fromLabel', () => {
     expect(e.portions).toBe(1.5)
     const { forGrams } = await import('./calc')
     expect(forGrams(e.per100g, e.grams).kcal).toBe(930)
+  })
+})
+
+describe('recipe portions', () => {
+  it('splits the cooked weight, or the raw weight without it', async () => {
+    const { recipePortionGrams } = await import('./db')
+    const ing = [{ productId: 1, grams: 500 }, { productId: 2, grams: 200 }]
+    expect(recipePortionGrams(ing, 900, 4)).toBe(225)
+    expect(recipePortionGrams(ing, undefined, 2)).toBe(350)
+    expect(recipePortionGrams(ing, 900)).toBeUndefined()
+  })
+
+  it('removes the portion when the count is cleared', async () => {
+    const c = await saveProduct(chicken)
+    const id = await saveRecipe({ name: 'Суп', ingredients: [{ productId: c, grams: 400 }], portions: 4 })
+    await saveRecipe({ name: 'Суп', ingredients: [{ productId: c, grams: 400 }] }, id)
+    const recipe = await db.recipes.get(id)
+    expect((await db.products.get(recipe!.productId))!.portionGrams).toBeUndefined()
   })
 })
