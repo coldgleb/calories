@@ -25,3 +25,7 @@ dist-ssr
 
 # Claude Code
 .claude/
+
+# Docker image export
+*.tar
+*.tar.gz

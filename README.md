@@ -19,8 +19,26 @@ npm run build    # сборка в dist/
 npm run preview  # проверка production-сборки с service worker
 ```
 
-## Публикация
+## Запуск в Docker
 
-Workflow `.github/workflows/deploy.yml` публикует сборку на GitHub Pages при пуше в `main`. В настройках репозитория: Settings → Pages → Source: GitHub Actions.
+```bash
+docker compose up -d --build
+```
 
-После открытия сайта на телефоне выберите «Установить приложение» (Android/Chrome) или «Поделиться → На экран „Домой“» (iOS/Safari).
+Приложение откроется на порту `8080`. Образ собирается из исходников: тесты, сборка и nginx.
+
+Перенести на сервер без интернета можно готовым образом:
+
+```bash
+docker compose build
+docker save calories-web:latest | gzip > calories-web.tar.gz
+# на сервере, рядом с docker-compose.yml:
+docker load < calories-web.tar.gz
+docker compose up -d --no-build
+```
+
+**Нужен HTTPS.** Камера (сканер штрихкодов), установка на экран «Домой» и офлайн-режим работают только в защищённом контексте: `https://` или `localhost`. По адресу вида `http://192.168.1.10:8080` приложение откроется, но без этих функций. Поставьте перед контейнером обратный прокси с сертификатом (Caddy, Traefik, nginx + Let's Encrypt) или используйте Tailscale / Cloudflare Tunnel.
+
+Данные по-прежнему хранятся в браузере каждого устройства. Синхронизация через сервер — следующий этап.
+
+Установка на телефон: «Установить приложение» (Android/Chrome) или «Поделиться → На экран „Домой“» (iOS/Safari).
