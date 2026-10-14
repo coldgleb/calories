@@ -793,3 +793,49 @@ button:focus-visible {
   color: var(--muted);
   font-size: 12px;
 }
+
+/* Open Food Facts search */
+.list-item.off-search {
+  margin-top: 12px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  color: var(--accent);
+}
+
+.off-results {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.off-results .section-title {
+  margin: 0;
+}
+
+.off-results p {
+  margin: 0;
+}
+
+.grid2 {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.sheet {
+  max-height: 92dvh;
+}
+
+.sheet-scroll {
+  overflow-y: auto;
+}
+
+.sheet a:not(.btn) {
+  color: var(--accent);
+}
+
+a.btn {
+  color: inherit;
+  text-decoration: none;
+}

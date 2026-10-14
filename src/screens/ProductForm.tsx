@@ -3,11 +3,18 @@ import type { Nav } from '../App'
 import { portionToPer100, type Nutrition } from '../calc'
 import { db, recipesUsing, saveProduct } from '../db'
 import { fmt, fmt1, Header, NumField, parseNum, useAutoFocus } from '../ui'
+import { OffContribute } from './OffContribute'
 import type { NewProduct } from './ProductSearch'
 
 type Mode = 'per100' | 'portion'
 
 const prefilled = (v: number | undefined) => (v ? fmt1(v) : '')
+
+/** "Творог 5%, «Простоквашино»" → name and brand, the way products from OFF are named. */
+export function splitBrand(full: string): { name: string; brand?: string } {
+  const m = full.match(/^(.*?)[,\s]*«([^»]+)»\s*$/)
+  return m && m[1].trim() ? { name: m[1].trim(), brand: m[2].trim() } : { name: full.trim() }
+}
 
 export function ProductForm(props: { id?: number; draft?: NewProduct; then?: (id: number) => void; nav: Nav }) {
   const draft = props.draft
@@ -20,6 +27,7 @@ export function ProductForm(props: { id?: number; draft?: NewProduct; then?: (id
   const [fat, setFat] = useState(prefilled(draft?.prefill?.fat))
   const [carbs, setCarbs] = useState(prefilled(draft?.prefill?.carbs))
   const [error, setError] = useState('')
+  const [contributing, setContributing] = useState(false)
   const nameRef = useAutoFocus<HTMLInputElement>(!props.id && !draft?.name)
 
   useEffect(() => {
@@ -147,7 +155,28 @@ export function ProductForm(props: { id?: number; draft?: NewProduct; then?: (id
             Сохранить
           </button>
         </div>
+        {props.id && (
+          <button type="button" class="btn" disabled={!valid} onClick={() => setContributing(true)}>
+            Отправить в Open Food Facts
+          </button>
+        )}
       </form>
+
+      {contributing && props.id && (
+        <OffContribute
+          {...splitBrand(name)}
+          barcode={barcode.replace(/\D/g, '')}
+          per100g={per100}
+          onClose={() => setContributing(false)}
+          onSaved={async (code) => {
+            // Remember the barcode so the next scan finds this product locally.
+            if (!barcode) {
+              setBarcode(code)
+              await db.products.update(props.id!, { barcode: code })
+            }
+          }}
+        />
+      )}
     </div>
   )
 }

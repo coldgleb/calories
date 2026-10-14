@@ -13,7 +13,12 @@ describe('parseOff', () => {
         nutriments: { 'energy-kcal_100g': 121, proteins_100g: 17, fat_100g: 5, carbohydrates_100g: '1.8' },
       },
     })
-    expect(p).toEqual({ name: 'Творог 5%, «Простоквашино»', per100g: { kcal: 121, protein: 17, fat: 5, carbs: 1.8 } })
+    expect(p).toMatchObject({
+      name: 'Творог 5%, «Простоквашино»',
+      title: 'Творог 5%',
+      brand: 'Простоквашино',
+      per100g: { kcal: 121, protein: 17, fat: 5, carbs: 1.8 },
+    })
   })
 
   it('converts kJ when kcal is missing', () => {
@@ -38,5 +43,24 @@ describe('niceTicks', () => {
     expect(wide[0]).toBeLessThanOrEqual(70)
     expect(wide[wide.length - 1]).toBeGreaterThanOrEqual(95)
     expect(wide.length).toBeLessThanOrEqual(6)
+  })
+})
+
+describe('contributionForm', () => {
+  it('sends per-100 g values in the OFF write API format', async () => {
+    const { contributionForm } = await import('./off')
+    const f = contributionForm(
+      { code: '4600000000017', name: 'Творог 5%', brand: 'Простоквашино', per100g: { kcal: 121.04, protein: 17, fat: 5, carbs: 1.83 } },
+      'me',
+      'secret',
+    )
+    expect(f.get('code')).toBe('4600000000017')
+    expect(f.get('user_id')).toBe('me')
+    expect(f.get('product_name_ru')).toBe('Творог 5%')
+    expect(f.get('brands')).toBe('Простоквашино')
+    expect(f.get('nutrition_data_per')).toBe('100g')
+    expect(f.get('nutriment_energy-kcal')).toBe('121')
+    expect(f.get('nutriment_carbohydrates')).toBe('1.8')
+    expect(f.has('quantity')).toBe(false)
   })
 })

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'preact/hooks'
 import { ACTIVITY_LEVELS, bmr, tdee, targets, type Nutrition, type Profile, type Sex } from '../calc'
-import { db, effectiveTargets, exportData, getSettings, importData, todayISO, useLive } from '../db'
+import { db, effectiveTargets, getSettings, todayISO, useLive } from '../db'
 import { fmt, Header, NumField, parseNum } from '../ui'
+import { DataExport } from './DataExport'
 
 const DEFICITS = [
   { value: 0, label: 'Поддержание веса' },
@@ -61,32 +62,6 @@ export function Settings() {
     })
     setStatus('Сохранено')
     setTimeout(() => setStatus(''), 2000)
-  }
-
-  async function doExport() {
-    const data = await exportData()
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `calories-${todayISO()}.json`
-    link.click()
-    URL.revokeObjectURL(url)
-  }
-
-  async function doImport(e: Event) {
-    const input = e.currentTarget as HTMLInputElement
-    const file = input.files?.[0]
-    input.value = ''
-    if (!file) return
-    if (!confirm('Импорт заменит все текущие данные содержимым файла. Продолжить?')) return
-    try {
-      await importData(JSON.parse(await file.text()))
-      alert('Данные восстановлены')
-      location.reload()
-    } catch (err) {
-      alert(`Не удалось импортировать: ${(err as Error).message}`)
-    }
   }
 
   const current = effectiveTargets(settings)
@@ -200,22 +175,7 @@ export function Settings() {
         )}
       </form>
 
-      <section class="form">
-        <h2 class="section-title">Данные</h2>
-        <p class="muted small">
-          Всё хранится только в этом браузере. Делайте резервную копию время от времени — при очистке данных сайта она
-          пропадёт.
-        </p>
-        <div class="row">
-          <button type="button" class="btn grow" onClick={doExport}>
-            Экспорт
-          </button>
-          <label class="btn grow">
-            Импорт
-            <input type="file" accept="application/json,.json" hidden onChange={doImport} />
-          </label>
-        </div>
-      </section>
+      <DataExport />
     </div>
   )
 }
