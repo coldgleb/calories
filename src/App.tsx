@@ -4,6 +4,7 @@ import { todayISO } from './db'
 import { AddFood } from './screens/AddFood'
 import { Day } from './screens/Day'
 import { ProductForm } from './screens/ProductForm'
+import { ReadyMeal } from './screens/ReadyMeal'
 import { Products } from './screens/Products'
 import { RecipeEditor } from './screens/RecipeEditor'
 import { Recipes } from './screens/Recipes'
@@ -16,10 +17,12 @@ export type Screen =
   | { name: 'add'; date: string }
   | { name: 'product'; id?: number; draft?: NewProduct; then?: (id: number) => void }
   | { name: 'recipe'; id?: number }
+  | { name: 'ready'; date: string }
 
 export interface Nav {
   push: (s: Screen) => void
-  pop: () => void
+  /** Closes the top `count` screens. */
+  pop: (count?: number) => void
 }
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
@@ -38,6 +41,9 @@ function renderScreen(s: Screen, nav: Nav) {
       return <ProductForm id={s.id} draft={s.draft} then={s.then} nav={nav} />
     case 'recipe':
       return <RecipeEditor id={s.id} nav={nav} />
+    case 'ready':
+      // Back to the diary, past the "add food" screen it was opened from.
+      return <ReadyMeal date={s.date} nav={nav} onDone={() => nav.pop(2)} />
   }
 }
 
@@ -48,7 +54,11 @@ export function App() {
 
   const nav: Nav = {
     push: (s) => setStack((st) => [...st, s]),
-    pop: () => setStack((st) => st.slice(0, -1)),
+    // Also used directly as an onClick handler, so ignore non-numeric arguments.
+    pop: (count?: unknown) => {
+      const n = typeof count === 'number' ? count : 1
+      setStack((st) => st.slice(0, Math.max(0, st.length - n)))
+    },
   }
 
   // Screens below the top stay mounted (just hidden) so they keep their state.

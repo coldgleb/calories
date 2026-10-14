@@ -19,11 +19,13 @@ const ru = (iso: string) => iso.split('-').reverse().join('.')
 export function diaryRows(entries: Entry[]) {
   const sorted = [...entries].sort((a, b) => a.date.localeCompare(b.date) || a.createdAt - b.createdAt)
   return [
-    ['Дата', 'Время', 'Продукт', 'Граммы', 'Ккал', 'Белки, г', 'Жиры, г', 'Углеводы, г'],
+    ['Дата', 'Время', 'Продукт', 'Граммы', 'Порции', 'Ккал', 'Белки, г', 'Жиры, г', 'Углеводы, г'],
     ...sorted.map((e) => {
       const n = forGrams(e.per100g, e.grams)
       const time = new Date(e.createdAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
-      return [ru(e.date), time, e.name, e.grams, n.kcal, n.protein, n.fat, n.carbs]
+      // Portion-only foods have no real weight: their grams are portions × 100.
+      const portions = e.portions ?? (e.portionOnly ? e.grams / 100 : undefined)
+      return [ru(e.date), time, e.name, e.portionOnly ? undefined : e.grams, portions, n.kcal, n.protein, n.fat, n.carbs]
     }),
   ]
 }
@@ -51,10 +53,21 @@ export function weightRows(weights: WeightLog[]) {
 
 export function productRows(products: Product[]) {
   return [
-    ['Название', 'Тип', 'Штрихкод', 'Ккал/100 г', 'Белки/100 г', 'Жиры/100 г', 'Углеводы/100 г', 'Использований'],
+    ['Название', 'Тип', 'Штрихкод', 'Значения на', 'Ккал', 'Белки, г', 'Жиры, г', 'Углеводы, г', 'Порция, г', 'Использований'],
     ...[...products]
       .sort((a, b) => a.name.localeCompare(b.name, 'ru'))
-      .map((p) => [p.name, p.kind === 'recipe' ? 'рецепт' : 'продукт', p.barcode, p.kcal, p.protein, p.fat, p.carbs, p.usageCount]),
+      .map((p) => [
+        p.name,
+        p.kind === 'recipe' ? 'рецепт' : 'продукт',
+        p.barcode,
+        p.portionOnly ? 'порцию' : '100 г',
+        p.kcal,
+        p.protein,
+        p.fat,
+        p.carbs,
+        p.portionGrams,
+        p.usageCount,
+      ]),
   ]
 }
 

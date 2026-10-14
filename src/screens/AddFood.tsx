@@ -22,15 +22,24 @@ export function AddFood(props: { date: string; nav: Nav }) {
           })
         }
         emptyHint="Справочник пуст. Добавьте первый продукт: название и КБЖУ с этикетки."
+        actions={
+          <button class="list-item create ready" onClick={() => props.nav.push({ name: 'ready', date: props.date })}>
+            <span class="li-main">
+              <span class="li-title">🍱 Готовая еда</span>
+              <span class="li-sub">КБЖУ на порцию — сразу в дневник</span>
+            </span>
+          </button>
+        }
       />
       {picked && (
         <GramsSheet
           title={picked.name}
           per100g={picked}
+          portion={picked}
           submitLabel="Добавить"
           onClose={() => setPicked(undefined)}
-          onSubmit={async (grams) => {
-            await addEntry(picked, grams, props.date)
+          onSubmit={async (amount) => {
+            await addEntry(picked, amount, props.date)
             props.nav.pop()
           }}
         />

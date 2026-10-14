@@ -1,3 +1,4 @@
+import type { ComponentChildren } from 'preact'
 import { useRef, useState } from 'preact/hooks'
 import type { Nutrition } from '../calc'
 import { db, useLive, type Product } from '../db'
@@ -10,6 +11,7 @@ export interface NewProduct {
   name: string
   barcode?: string
   prefill?: Nutrition
+  portionGrams?: number
   /** Values came from Open Food Facts and should be checked against the label. */
   fromOff?: boolean
 }
@@ -31,6 +33,10 @@ export function ProductSearch(props: {
   exclude?: number[]
   emptyHint?: string
   autoFocus?: boolean
+  /** Hide foods known only per portion — they have no weight to put in a recipe. */
+  gramsOnly?: boolean
+  /** Extra buttons shown next to "New product". */
+  actions?: ComponentChildren
 }) {
   const [query, setQuery] = useState('')
   const [scan, setScan] = useState<ScanState>()
@@ -44,6 +50,7 @@ export function ProductSearch(props: {
 
   const list = (all ?? [])
     .filter((p) => !props.exclude?.includes(p.id))
+    .filter((p) => !(props.gramsOnly && p.portionOnly))
     .filter((p) => !q || p.name.toLowerCase().includes(q) || p.barcode === q)
     .sort((a, b) => b.lastUsedAt - a.lastUsedAt || b.usageCount - a.usageCount || a.name.localeCompare(b.name, 'ru'))
 
@@ -80,7 +87,14 @@ export function ProductSearch(props: {
   async function pickOff(hit: OffProduct) {
     const local = hit.code ? await db.products.where('barcode').equals(hit.code).first() : undefined
     if (local && !props.exclude?.includes(local.id)) props.onPick(local)
-    else props.onCreate({ name: hit.name, barcode: hit.code, prefill: hit.per100g, fromOff: true })
+    else
+      props.onCreate({
+        name: hit.name,
+        barcode: hit.code,
+        prefill: hit.per100g,
+        portionGrams: hit.portionGrams,
+        fromOff: true,
+      })
   }
 
   async function onDetected(code: string) {
@@ -98,7 +112,7 @@ export function ProductSearch(props: {
       setScan(undefined)
       props.onCreate(
         found
-          ? { name: found.name, barcode: code, prefill: found.per100g, fromOff: true }
+          ? { name: found.name, barcode: code, prefill: found.per100g, portionGrams: found.portionGrams, fromOff: true }
           : { name: '', barcode: code },
       )
     } catch (e) {
@@ -142,9 +156,12 @@ export function ProductSearch(props: {
           </svg>
         </button>
       </div>
-      <button class="list-item create" onClick={() => props.onCreate({ name: query.trim() })}>
-        <span class="li-title">＋ Новый продукт{query.trim() && ` «${query.trim()}»`}</span>
-      </button>
+      <div class={props.actions ? 'create-row' : ''}>
+        <button class="list-item create" onClick={() => props.onCreate({ name: query.trim() })}>
+          <span class="li-title">＋ Новый продукт{query.trim() && ` «${query.trim()}»`}</span>
+        </button>
+        {props.actions}
+      </div>
       <ul class="list">
         {list.map((p) => (
           <li key={p.id}>
@@ -155,7 +172,8 @@ export function ProductSearch(props: {
                   {p.name}
                 </span>
                 <span class="li-sub">
-                  на 100 г · <Macros n={p} compact />
+                  {p.portionOnly ? 'на порцию' : 'на 100 г'}
+                  {p.portionGrams ? ` · порция ${fmt(p.portionGrams)} г` : ''} · <Macros n={p} compact />
                 </span>
               </span>
               <span class="li-kcal">{fmt(p.kcal)}</span>

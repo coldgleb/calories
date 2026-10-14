@@ -1,14 +1,11 @@
 import { useEffect, useState } from 'preact/hooks'
 import type { Nav } from '../App'
-import { portionToPer100, type Nutrition } from '../calc'
 import { db, recipesUsing, saveProduct } from '../db'
-import { fmt, fmt1, Header, NumField, parseNum, useAutoFocus } from '../ui'
+import { Header, useAutoFocus } from '../ui'
+import { LabelFields, useLabel } from './LabelFields'
 import { OffContribute } from './OffContribute'
 import type { NewProduct } from './ProductSearch'
 
-type Mode = 'per100' | 'portion'
-
-const prefilled = (v: number | undefined) => (v ? fmt1(v) : '')
 
 /** "Творог 5%, «Простоквашино»" → name and brand, the way products from OFF are named. */
 export function splitBrand(full: string): { name: string; brand?: string } {
@@ -20,12 +17,7 @@ export function ProductForm(props: { id?: number; draft?: NewProduct; then?: (id
   const draft = props.draft
   const [name, setName] = useState(draft?.name ?? '')
   const [barcode, setBarcode] = useState(draft?.barcode ?? '')
-  const [mode, setMode] = useState<Mode>('per100')
-  const [portion, setPortion] = useState('')
-  const [kcal, setKcal] = useState(prefilled(draft?.prefill?.kcal))
-  const [protein, setProtein] = useState(prefilled(draft?.prefill?.protein))
-  const [fat, setFat] = useState(prefilled(draft?.prefill?.fat))
-  const [carbs, setCarbs] = useState(prefilled(draft?.prefill?.carbs))
+  const label = useLabel({ values: draft?.prefill, portionGrams: draft?.portionGrams })
   const [error, setError] = useState('')
   const [contributing, setContributing] = useState(false)
   const nameRef = useAutoFocus<HTMLInputElement>(!props.id && !draft?.name)
@@ -36,21 +28,11 @@ export function ProductForm(props: { id?: number; draft?: NewProduct; then?: (id
       if (!p) return
       setName(p.name)
       setBarcode(p.barcode ?? '')
-      setKcal(fmt1(p.kcal))
-      setProtein(fmt1(p.protein))
-      setFat(fmt1(p.fat))
-      setCarbs(fmt1(p.carbs))
+      label.load({ basis: p.portionOnly ? 'portion' : 'per100', values: p, portionGrams: p.portionGrams })
     })
   }, [props.id])
 
-  const p = parseNum(protein) ?? 0
-  const f = parseNum(fat) ?? 0
-  const c = parseNum(carbs) ?? 0
-  const kcalFromMacros = p * 4 + f * 9 + c * 4
-  const entered: Nutrition = { kcal: parseNum(kcal) ?? kcalFromMacros, protein: p, fat: f, carbs: c }
-  const portionG = parseNum(portion) ?? 0
-  const per100 = mode === 'portion' ? portionToPer100(entered, portionG) : entered
-  const valid = name.trim() !== '' && (mode === 'per100' || portionG > 0) && per100.kcal > 0
+  const valid = name.trim() !== '' && label.valid
 
   async function save(e: Event) {
     e.preventDefault()
@@ -63,7 +45,14 @@ export function ProductForm(props: { id?: number; draft?: NewProduct; then?: (id
         return
       }
     }
-    const id = await saveProduct({ name: name.trim(), barcode: code || undefined, ...per100 }, props.id)
+    if (props.id && label.stored.portionOnly) {
+      const used = await recipesUsing(props.id)
+      if (used.length) {
+        setError(`Продукт есть в рецептах (${used.map((r) => r.name).join(', ')}), для них нужен вес порции.`)
+        return
+      }
+    }
+    const id = await saveProduct({ name: name.trim(), barcode: code || undefined, ...label.stored }, props.id)
     props.nav.pop()
     props.then?.(id)
   }
@@ -104,36 +93,7 @@ export function ProductForm(props: { id?: number; draft?: NewProduct; then?: (id
           <p class="muted small">Штрихкода {draft.barcode} нет в базе. Введите КБЖУ с этикетки — в следующий раз продукт найдётся сразу.</p>
         )}
 
-        <div class="segmented" role="radiogroup">
-          <button type="button" class={mode === 'per100' ? 'active' : ''} onClick={() => setMode('per100')}>
-            На 100 г
-          </button>
-          <button type="button" class={mode === 'portion' ? 'active' : ''} onClick={() => setMode('portion')}>
-            На порцию
-          </button>
-        </div>
-
-        {mode === 'portion' && <NumField label="Вес порции" value={portion} onInput={setPortion} suffix="г" />}
-
-        <NumField
-          label="Калории"
-          value={kcal}
-          onInput={setKcal}
-          suffix="ккал"
-          autoFocus={!!draft?.name && !draft.prefill}
-          placeholder={kcalFromMacros ? fmt(kcalFromMacros) : '0'}
-        />
-        <div class="grid3">
-          <NumField label="Белки" value={protein} onInput={setProtein} suffix="г" />
-          <NumField label="Жиры" value={fat} onInput={setFat} suffix="г" />
-          <NumField label="Углеводы" value={carbs} onInput={setCarbs} suffix="г" />
-        </div>
-        {!kcal && kcalFromMacros > 0 && <p class="muted small">Калории не указаны — посчитаны по БЖУ.</p>}
-        {mode === 'portion' && portionG > 0 && (
-          <p class="muted small">
-            На 100 г: {fmt(per100.kcal)} ккал · Б {fmt1(per100.protein)} · Ж {fmt1(per100.fat)} · У {fmt1(per100.carbs)}
-          </p>
-        )}
+        <LabelFields label={label} focusKcal={!!draft?.name && !draft.prefill} />
         <label class="field">
           <span class="field-label">Штрихкод (необязательно)</span>
           <input
@@ -155,7 +115,7 @@ export function ProductForm(props: { id?: number; draft?: NewProduct; then?: (id
             Сохранить
           </button>
         </div>
-        {props.id && (
+        {props.id && !label.stored.portionOnly && (
           <button type="button" class="btn" disabled={!valid} onClick={() => setContributing(true)}>
             Отправить в Open Food Facts
           </button>
@@ -166,7 +126,7 @@ export function ProductForm(props: { id?: number; draft?: NewProduct; then?: (id
         <OffContribute
           {...splitBrand(name)}
           barcode={barcode.replace(/\D/g, '')}
-          per100g={per100}
+          per100g={label.stored}
           onClose={() => setContributing(false)}
           onSaved={async (code) => {
             // Remember the barcode so the next scan finds this product locally.

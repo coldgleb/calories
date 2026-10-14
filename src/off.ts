@@ -11,6 +11,8 @@ export interface OffProduct {
   title: string
   brand?: string
   quantity?: string
+  /** Serving size in grams, when OFF knows it. */
+  portionGrams?: number
   per100g?: Nutrition
 }
 
@@ -20,6 +22,7 @@ interface RawProduct {
   product_name_ru?: string
   brands?: string
   quantity?: string
+  serving_quantity?: number | string
   nutriments?: Record<string, number | string | undefined>
 }
 
@@ -28,7 +31,7 @@ interface OffResponse {
   product?: RawProduct
 }
 
-const FIELDS = 'code,product_name,product_name_ru,brands,quantity,nutriments'
+const FIELDS = 'code,product_name,product_name_ru,brands,quantity,serving_quantity,nutriments'
 
 function num(v: number | string | undefined): number | undefined {
   const n = typeof v === 'string' ? Number(v) : v
@@ -42,21 +45,34 @@ export function parseProduct(p: RawProduct): OffProduct {
     .filter(Boolean)
     .join(', ')
 
-  const n = p.nutriments ?? {}
-  const kj = num(n['energy_100g'])
-  const kcal = num(n['energy-kcal_100g']) ?? (kj != null ? kj / 4.184 : undefined)
-  const protein = num(n['proteins_100g'])
-  const fat = num(n['fat_100g'])
-  const carbs = num(n['carbohydrates_100g'])
-  const known = kcal != null || protein != null || fat != null || carbs != null
+  const portionGrams = num(p.serving_quantity) || undefined
+  // Prefer per-100 g values; fall back to per-serving ones when the serving weight is known.
+  const per100g = nutrition(p.nutriments ?? {}, '_100g') ?? scaled(nutrition(p.nutriments ?? {}, '_serving'), portionGrams)
   return {
     code: p.code,
     name,
     title,
     brand,
     quantity: p.quantity?.trim() || undefined,
-    per100g: known ? { kcal: kcal ?? 0, protein: protein ?? 0, fat: fat ?? 0, carbs: carbs ?? 0 } : undefined,
+    portionGrams,
+    per100g,
   }
+}
+
+function nutrition(n: Record<string, number | string | undefined>, suffix: string): Nutrition | undefined {
+  const kj = num(n[`energy${suffix}`])
+  const kcal = num(n[`energy-kcal${suffix}`]) ?? (kj != null ? kj / 4.184 : undefined)
+  const protein = num(n[`proteins${suffix}`])
+  const fat = num(n[`fat${suffix}`])
+  const carbs = num(n[`carbohydrates${suffix}`])
+  if (kcal == null && protein == null && fat == null && carbs == null) return undefined
+  return { kcal: kcal ?? 0, protein: protein ?? 0, fat: fat ?? 0, carbs: carbs ?? 0 }
+}
+
+function scaled(n: Nutrition | undefined, grams: number | undefined): Nutrition | undefined {
+  if (!n || !grams) return undefined
+  const f = 100 / grams
+  return { kcal: n.kcal * f, protein: n.protein * f, fat: n.fat * f, carbs: n.carbs * f }
 }
 
 export function parseOff(json: OffResponse): OffProduct | null {

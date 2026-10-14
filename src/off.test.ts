@@ -64,3 +64,15 @@ describe('contributionForm', () => {
     expect(f.has('quantity')).toBe(false)
   })
 })
+
+describe('serving size', () => {
+  it('reads the serving weight and falls back to per-serving values', () => {
+    const p = parseOff({
+      status: 1,
+      product: { product_name: 'Батончик', serving_quantity: '40', nutriments: { 'energy-kcal_serving': 180, proteins_serving: 8 } },
+    })
+    expect(p!.portionGrams).toBe(40)
+    expect(p!.per100g!.kcal).toBeCloseTo(450)
+    expect(p!.per100g!.protein).toBeCloseTo(20)
+  })
+})

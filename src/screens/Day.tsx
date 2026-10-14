@@ -3,7 +3,7 @@ import type { Nav } from '../App'
 import { forGrams, sum } from '../calc'
 import { db, effectiveTargets, shiftDate, todayISO, useLive, type Entry } from '../db'
 import { Bar, fmt, Macros } from '../ui'
-import { GramsSheet } from './GramsSheet'
+import { amountLabel, GramsSheet } from './GramsSheet'
 
 function dateLabel(iso: string): string {
   const today = todayISO()
@@ -64,7 +64,7 @@ export function Day(props: { date: string; setDate: (d: string) => void; nav: Na
                 <span class="li-main">
                   <span class="li-title">{e.name}</span>
                   <span class="li-sub">
-                    {fmt(e.grams)} г · <Macros n={n} compact />
+                    {amountLabel(e)} · <Macros n={n} compact />
                   </span>
                 </span>
                 <span class="li-kcal">{fmt(n.kcal)}</span>
@@ -83,11 +83,12 @@ export function Day(props: { date: string; setDate: (d: string) => void; nav: Na
         <GramsSheet
           title={editing.name}
           per100g={editing.per100g}
-          initialGrams={editing.grams}
+          portion={editing}
+          initial={editing}
           submitLabel="Сохранить"
           onClose={() => setEditing(undefined)}
-          onSubmit={async (grams) => {
-            await db.entries.update(editing.id, { grams })
+          onSubmit={async ({ grams, portions }) => {
+            await db.entries.update(editing.id, { grams, portions })
             setEditing(undefined)
           }}
           onDelete={async () => {

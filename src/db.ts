@@ -1,14 +1,18 @@
 import Dexie, { liveQuery, type EntityTable } from 'dexie'
 import { useEffect, useState } from 'preact/hooks'
-import { recipePer100, targets, type Nutrition, type Profile, type Targets } from './calc'
+import { portionToPer100, recipePer100, targets, type Nutrition, type Profile, type Targets } from './calc'
 
 export interface Product extends Nutrition {
   id: number
   name: string
-  /** Values are per 100 g. Recipes are stored as products too. */
+  /** Values are per 100 g (per portion when `portionOnly`). Recipes are stored as products too. */
   kind: 'product' | 'recipe'
   recipeId?: number
   barcode?: string
+  /** Weight of one portion, when the label gives it. */
+  portionGrams?: number
+  /** The label only gives values per portion, without its weight. */
+  portionOnly?: boolean
   usageCount: number
   lastUsedAt: number
 }
@@ -35,7 +39,41 @@ export interface Entry {
   /** Snapshot of the product's per-100 g values when it was eaten. */
   per100g: Nutrition
   grams: number
+  /** Set when the amount was entered in portions. */
+  portions?: number
+  portionGrams?: number
+  /** `per100g` holds per-portion values and `grams` is portions × 100. */
+  portionOnly?: boolean
   createdAt: number
+}
+
+/** How much was eaten. For portion-only foods `grams` is portions × 100. */
+export interface Amount {
+  grams: number
+  portions?: number
+}
+
+export interface PortionInfo {
+  portionGrams?: number
+  portionOnly?: boolean
+}
+
+export type LabelBasis = 'per100' | 'portion'
+
+/**
+ * Turns label values into what we store: per-100 g values plus the portion weight,
+ * or — when the label gives values per portion but not its weight — per-portion values.
+ */
+export function fromLabel(basis: LabelBasis, values: Nutrition, portionGrams?: number): Nutrition & PortionInfo {
+  const g = portionGrams && portionGrams > 0 ? portionGrams : undefined
+  if (basis === 'per100') return { ...values, portionGrams: g, portionOnly: undefined }
+  if (g) return { ...portionToPer100(values, g), portionGrams: g, portionOnly: undefined }
+  return { ...values, portionGrams: undefined, portionOnly: true }
+}
+
+/** Grams one portion stands for in calculations, if the food has portions. */
+export function portionUnit(p: PortionInfo): number | undefined {
+  return p.portionOnly ? 100 : p.portionGrams
 }
 
 export interface Settings {
@@ -95,19 +133,32 @@ export function nutritionOf(p: Nutrition): Nutrition {
   return { kcal: p.kcal, protein: p.protein, fat: p.fat, carbs: p.carbs }
 }
 
-export async function addEntry(product: Product, grams: number, date: string) {
+export async function addEntry(product: Product, amount: Amount, date: string) {
   const now = Date.now()
   await db.transaction('rw', db.entries, db.products, async () => {
-    await db.entries.add({
-      date,
-      productId: product.id,
-      name: product.name,
-      per100g: nutritionOf(product),
-      grams,
-      createdAt: now,
-    } as Entry)
+    await db.entries.add(entryFor(product, amount, date, now))
     await db.products.update(product.id, { usageCount: product.usageCount + 1, lastUsedAt: now })
   })
+}
+
+/** A diary entry for food that isn't (or isn't yet) in the product list; `productId` 0 means ad hoc. */
+export function entryFor(
+  food: Nutrition & PortionInfo & { name: string; id?: number },
+  amount: Amount,
+  date: string,
+  now = Date.now(),
+): Entry {
+  return {
+    date,
+    productId: food.id ?? 0,
+    name: food.name,
+    per100g: nutritionOf(food),
+    grams: amount.grams,
+    portions: amount.portions,
+    portionGrams: food.portionGrams,
+    portionOnly: food.portionOnly || undefined,
+    createdAt: now,
+  } as Entry
 }
 
 export async function saveProduct(data: Omit<Product, 'id' | 'usageCount' | 'lastUsedAt' | 'kind'>, id?: number) {

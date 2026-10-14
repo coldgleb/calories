@@ -67,6 +67,7 @@ export function RecipeEditor(props: { id?: number; nav: Nav }) {
         <ProductSearch
           autoFocus
           exclude={productId ? [productId] : []}
+          gramsOnly
           onPick={(p) => {
             setPicking(false)
             setAdding(p)
@@ -157,9 +158,10 @@ export function RecipeEditor(props: { id?: number; nav: Nav }) {
         <GramsSheet
           title={adding.name}
           per100g={adding}
+          portion={{ portionGrams: adding.portionGrams }}
           submitLabel="В рецепт"
           onClose={() => setAdding(undefined)}
-          onSubmit={(grams) => {
+          onSubmit={({ grams }) => {
             setIngredients((list) => [...list, { productId: adding.id, grams }])
             setAdding(undefined)
           }}
@@ -169,10 +171,10 @@ export function RecipeEditor(props: { id?: number; nav: Nav }) {
         <GramsSheet
           title={editing.product?.name ?? 'Ингредиент'}
           per100g={editing.product ?? { kcal: 0, protein: 0, fat: 0, carbs: 0 }}
-          initialGrams={editing.grams}
+          initial={{ grams: editing.grams }}
           submitLabel="Сохранить"
           onClose={() => setEditingIdx(undefined)}
-          onSubmit={(grams) => {
+          onSubmit={({ grams }) => {
             setIngredients((list) => list.map((i, idx) => (idx === editingIdx ? { ...i, grams } : i)))
             setEditingIdx(undefined)
           }}

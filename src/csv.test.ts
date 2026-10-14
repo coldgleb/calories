@@ -47,12 +47,23 @@ describe('buildCsv', () => {
   it('filters diary by an inclusive period', async () => {
     const { csv, rows } = await buildCsv('diary', '2026-10-01', '2026-10-07')
     expect(rows).toBe(2)
-    expect(csv).toContain('01.10.2026;12:30;Еда 2026-10-01;100;100;10;5;20')
+    expect(csv).toContain('01.10.2026;12:30;Еда 2026-10-01;100;;100;10;5;20')
     expect(csv).not.toContain('Еда 2026-09-30')
     expect(csv).not.toContain('Еда 2026-10-08')
   })
 
   it('treats an empty start as "from the beginning"', async () => {
     expect((await buildCsv('diary', '', '2026-10-07')).rows).toBe(3)
+  })
+})
+
+describe('diaryRows with portions', () => {
+  it('shows portions and hides the pseudo-weight of portion-only food', async () => {
+    const { diaryRows } = await import('./csv')
+    const meal = { ...entry('2026-10-02', 150, 400, 'Ланч'), portions: 1.5, portionOnly: true }
+    const bar = { ...entry('2026-10-02', 80, 450, 'Батончик'), portions: 2, portionGrams: 40 }
+    const rows = diaryRows([meal, bar])
+    expect(rows[1].slice(2)).toEqual(['Ланч', undefined, 1.5, 600, 15, 7.5, 30])
+    expect(rows[2].slice(2, 6)).toEqual(['Батончик', 80, 2, 360])
   })
 })
