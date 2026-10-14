@@ -19,6 +19,12 @@ npm run build    # сборка в dist/
 npm run preview  # проверка production-сборки с service worker
 ```
 
+## Публикация
+
+Сайт: https://coldgleb.github.io/calories/
+
+Workflow `.github/workflows/deploy.yml` прогоняет тесты, собирает и публикует сайт на GitHub Pages при каждом пуше в `main`.
+
 ## Запуск в Docker
 
 ```bash
