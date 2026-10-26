@@ -58,7 +58,7 @@ export function productRows(products: Product[]) {
       .sort((a, b) => a.name.localeCompare(b.name, 'ru'))
       .map((p) => [
         p.name,
-        p.kind === 'recipe' ? 'рецепт' : 'продукт',
+        { product: 'продукт', recipe: 'рецепт', ready: 'готовая еда' }[p.kind],
         p.barcode,
         p.portionOnly ? 'порцию' : '100 г',
         p.kcal,

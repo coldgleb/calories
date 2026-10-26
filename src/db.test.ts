@@ -106,3 +106,28 @@ describe('recipe portions', () => {
     expect((await db.products.get(recipe!.productId))!.portionGrams).toBeUndefined()
   })
 })
+
+describe('catalogue sections', () => {
+  it('saves ready food into its own section and keeps it on edit', async () => {
+    const id = await saveProduct({ name: 'Ланч', kcal: 620, protein: 30, fat: 25, carbs: 60, portionOnly: true }, undefined, 'ready')
+    await saveProduct({ name: 'Ланч', kcal: 650, protein: 30, fat: 25, carbs: 60, portionOnly: true }, id)
+    const p = (await db.products.get(id))!
+    expect(p.kind).toBe('ready')
+    expect(p.kcal).toBe(650)
+    expect(p.uid).toBeTruthy()
+  })
+
+  it('fills sync fields when importing an old backup', async () => {
+    await importData({
+      app: 'calories',
+      data: {
+        products: [{ id: 1, name: 'Ланч', kind: 'product', portionOnly: true, kcal: 620, protein: 0, fat: 0, carbs: 0, usageCount: 0, lastUsedAt: 0 }],
+        recipes: [{ id: 1, name: 'Плов', ingredients: [], productId: 1 }],
+      },
+    })
+    const p = (await db.products.get(1))!
+    expect(p.kind).toBe('ready')
+    expect(p.uid).toBeTruthy()
+    expect((await db.recipes.get(1))!.uid).toBeTruthy()
+  })
+})

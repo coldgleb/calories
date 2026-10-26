@@ -6,8 +6,14 @@ import { fmt, fmt1, Header, NumField, parseNum, useAutoFocus } from '../ui'
 import { GramsSheet } from './GramsSheet'
 import { ProductSearch } from './ProductSearch'
 
-export function RecipeEditor(props: { id?: number; nav: Nav }) {
-  const [name, setName] = useState('')
+export function RecipeEditor(props: {
+  id?: number
+  initialName?: string
+  /** Called with the recipe's product id after saving, e.g. to log it right away. */
+  then?: (productId: number) => void
+  nav: Nav
+}) {
+  const [name, setName] = useState(props.initialName ?? '')
   const [ingredients, setIngredients] = useState<RecipeIngredient[]>([])
   const [cooked, setCooked] = useState('')
   const [portions, setPortions] = useState('')
@@ -55,8 +61,13 @@ export function RecipeEditor(props: { id?: number; nav: Nav }) {
   async function save(e: Event) {
     e.preventDefault()
     if (!valid) return
-    await saveRecipe({ name: name.trim(), ingredients, cookedWeight: cookedWeight || undefined, portions: portionCount }, props.id)
+    const id = await saveRecipe(
+      { name: name.trim(), ingredients, cookedWeight: cookedWeight || undefined, portions: portionCount },
+      props.id,
+    )
+    const recipe = await db.recipes.get(id)
     props.nav.pop()
+    if (recipe) props.then?.(recipe.productId)
   }
 
   async function remove() {

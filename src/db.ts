@@ -2,11 +2,20 @@ import Dexie, { liveQuery, type EntityTable } from 'dexie'
 import { useEffect, useState } from 'preact/hooks'
 import { portionToPer100, recipePer100, targets, type Nutrition, type Profile, type Targets } from './calc'
 
+/**
+ * Products and ready food are meant to become a catalogue shared by all users once there is
+ * a server; recipes stay personal. `uid` and `updatedAt` are there for that future sync —
+ * local numeric ids differ between devices.
+ */
+export type ProductKind = 'product' | 'recipe' | 'ready'
+
 export interface Product extends Nutrition {
   id: number
+  uid: string
+  updatedAt: number
   name: string
   /** Values are per 100 g (per portion when `portionOnly`). Recipes are stored as products too. */
-  kind: 'product' | 'recipe'
+  kind: ProductKind
   recipeId?: number
   barcode?: string
   /** Weight of one portion, when the label gives it. */
@@ -24,6 +33,8 @@ export interface RecipeIngredient {
 
 export interface Recipe {
   id: number
+  uid: string
+  updatedAt: number
   name: string
   ingredients: RecipeIngredient[]
   cookedWeight?: number
@@ -110,6 +121,38 @@ db.version(2).stores({
   products: '++id, name, kind, lastUsedAt, usageCount, barcode',
 })
 
+db.version(3)
+  .stores({
+    products: '++id, &uid, name, kind, lastUsedAt, usageCount, barcode',
+    recipes: '++id, &uid, name, productId',
+  })
+  .upgrade(async (tx) => {
+    await tx.table('products').toCollection().modify((p: Product) => fillProduct(p))
+    await tx.table('recipes').toCollection().modify((r: Recipe) => fillSyncFields(r))
+  })
+
+export function newUid(): string {
+  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID()
+  // randomUUID needs a secure context; plain-http self-hosting still gets random ids.
+  const b = crypto.getRandomValues(new Uint8Array(16))
+  b[6] = (b[6] & 0x0f) | 0x40
+  b[8] = (b[8] & 0x3f) | 0x80
+  const h = [...b].map((x) => x.toString(16).padStart(2, '0')).join('')
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`
+}
+
+function fillSyncFields(r: { uid?: string; updatedAt?: number }) {
+  r.uid ??= newUid()
+  r.updatedAt ??= Date.now()
+}
+
+/** Brings a product from an older version (database or backup file) up to date. */
+function fillProduct(p: Product) {
+  fillSyncFields(p)
+  // Before the "ready food" section, ready meals were products known only per portion.
+  if (p.kind === 'product' && p.portionOnly) p.kind = 'ready'
+}
+
 export function useLive<T>(query: () => T | Promise<T>, deps: unknown[] = []): T | undefined {
   const [value, setValue] = useState<T>()
   useEffect(() => {
@@ -163,15 +206,20 @@ export function entryFor(
   } as Entry
 }
 
-export async function saveProduct(data: Omit<Product, 'id' | 'usageCount' | 'lastUsedAt' | 'kind'>, id?: number) {
+export async function saveProduct(
+  data: Omit<Product, 'id' | 'uid' | 'updatedAt' | 'usageCount' | 'lastUsedAt' | 'kind'>,
+  id?: number,
+  kind?: Exclude<ProductKind, 'recipe'>,
+) {
+  const now = Date.now()
   if (id) {
     await db.transaction('rw', db.products, db.recipes, async () => {
-      await db.products.update(id, data)
+      await db.products.update(id, { ...data, ...(kind && { kind }), updatedAt: now })
       await recalcRecipesUsing(id)
     })
     return id
   }
-  return db.products.add({ ...data, kind: 'product', usageCount: 0, lastUsedAt: 0 } as Product)
+  return db.products.add({ ...data, kind: kind ?? 'product', uid: newUid(), updatedAt: now, usageCount: 0, lastUsedAt: 0 } as Product)
 }
 
 export async function recipesUsing(productId: number): Promise<Recipe[]> {
@@ -181,7 +229,7 @@ export async function recipesUsing(productId: number): Promise<Recipe[]> {
 
 async function recalcRecipesUsing(productId: number) {
   for (const r of await recipesUsing(productId)) {
-    await db.products.update(r.productId, await computeRecipe(r.ingredients, r.cookedWeight))
+    await db.products.update(r.productId, { ...(await computeRecipe(r.ingredients, r.cookedWeight)), updatedAt: Date.now() })
   }
 }
 
@@ -208,20 +256,29 @@ export async function saveRecipe(
   id?: number,
 ) {
   const { name, ingredients, cookedWeight, portions } = r
+  const now = Date.now()
   const values = {
     ...(await computeRecipe(ingredients, cookedWeight)),
     portionGrams: recipePortionGrams(ingredients, cookedWeight, portions),
+    updatedAt: now,
   }
   return db.transaction('rw', db.products, db.recipes, async () => {
     if (id) {
       const recipe = await db.recipes.get(id)
       if (!recipe) throw new Error('Рецепт не найден')
-      await db.recipes.update(id, { name, ingredients, cookedWeight, portions })
+      await db.recipes.update(id, { name, ingredients, cookedWeight, portions, updatedAt: now })
       await db.products.update(recipe.productId, { name, ...values })
       return id
     }
-    const productId = await db.products.add({ name, ...values, kind: 'recipe', usageCount: 0, lastUsedAt: Date.now() } as Product)
-    const recipeId = await db.recipes.add({ name, ingredients, cookedWeight, portions, productId } as Recipe)
+    const productId = await db.products.add({
+      name,
+      ...values,
+      kind: 'recipe',
+      uid: newUid(),
+      usageCount: 0,
+      lastUsedAt: now,
+    } as Product)
+    const recipeId = await db.recipes.add({ name, ingredients, cookedWeight, portions, productId, uid: newUid(), updatedAt: now } as Recipe)
     await db.products.update(productId, { recipeId })
     return recipeId
   })
@@ -266,8 +323,12 @@ export async function importData(json: unknown) {
   if (file?.app !== 'calories' || !file.data) throw new Error('Это не файл резервной копии приложения')
   await db.transaction('rw', TABLES.map((t) => db.table(t)), async () => {
     for (const t of TABLES) {
+      const rows = (file.data![t] ?? []) as Record<string, unknown>[]
+      // Backups from older versions lack the sync fields; the schema upgrade only touched the database.
+      if (t === 'products') rows.forEach((p) => fillProduct(p as unknown as Product))
+      if (t === 'recipes') rows.forEach((r) => fillSyncFields(r))
       await db.table(t).clear()
-      await db.table(t).bulkAdd(file.data![t] ?? [])
+      await db.table(t).bulkAdd(rows)
     }
   })
 }

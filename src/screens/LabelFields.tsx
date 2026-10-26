@@ -46,7 +46,7 @@ export function useLabel(initial: LabelInitial = {}) {
 
 export type LabelState = ReturnType<typeof useLabel>
 
-export function LabelFields(props: { label: LabelState; focusKcal?: boolean; portionHint?: string }) {
+export function LabelFields(props: { label: LabelState; focusValues?: boolean; portionHint?: string }) {
   const l = props.label
   const perPortion = l.basis === 'portion'
   return (
@@ -60,19 +60,18 @@ export function LabelFields(props: { label: LabelState; focusKcal?: boolean; por
         </button>
       </div>
 
+      <div class="grid3">
+        <NumField label="Белки" value={l.protein} onInput={l.setProtein} suffix="г" autoFocus={props.focusValues} />
+        <NumField label="Жиры" value={l.fat} onInput={l.setFat} suffix="г" />
+        <NumField label="Углеводы" value={l.carbs} onInput={l.setCarbs} suffix="г" />
+      </div>
       <NumField
         label="Калории"
         value={l.kcal}
         onInput={l.setKcal}
         suffix="ккал"
-        autoFocus={props.focusKcal}
         placeholder={l.kcalFromMacros ? fmt(l.kcalFromMacros) : '0'}
       />
-      <div class="grid3">
-        <NumField label="Белки" value={l.protein} onInput={l.setProtein} suffix="г" />
-        <NumField label="Жиры" value={l.fat} onInput={l.setFat} suffix="г" />
-        <NumField label="Углеводы" value={l.carbs} onInput={l.setCarbs} suffix="г" />
-      </div>
       {!l.kcal && l.kcalFromMacros > 0 && <p class="muted small">Калории не указаны — посчитаны по БЖУ.</p>}
 
       <NumField

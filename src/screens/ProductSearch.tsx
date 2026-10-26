@@ -1,7 +1,6 @@
-import type { ComponentChildren } from 'preact'
 import { useRef, useState } from 'preact/hooks'
 import type { Nutrition } from '../calc'
-import { db, useLive, type Product } from '../db'
+import { db, useLive, type Product, type ProductKind } from '../db'
 import { lookupBarcode, searchOff, type OffProduct } from '../off'
 import { fmt, Macros, Sheet, useAutoFocus } from '../ui'
 import { Scanner } from './Scanner'
@@ -12,6 +11,8 @@ export interface NewProduct {
   barcode?: string
   prefill?: Nutrition
   portionGrams?: number
+  /** Catalogue section the new item goes to. */
+  kind?: Exclude<ProductKind, 'recipe'>
   /** Values came from Open Food Facts and should be checked against the label. */
   fromOff?: boolean
 }
@@ -35,10 +36,22 @@ export function ProductSearch(props: {
   autoFocus?: boolean
   /** Hide foods known only per portion — they have no weight to put in a recipe. */
   gramsOnly?: boolean
-  /** Extra buttons shown next to "New product". */
-  actions?: ComponentChildren
+  /** Which catalogue sections to list; all by default. */
+  kinds?: ProductKind[]
+  /** Section for items created from here (scan, OFF, "new"). */
+  draftKind?: Exclude<ProductKind, 'recipe'>
+  /** Personal items only: no barcode scanner and no Open Food Facts. */
+  offline?: boolean
+  createLabel?: string
+  placeholder?: string
+  /** Lets a parent keep the query, e.g. across catalogue sections. */
+  query?: string
+  onQuery?: (q: string) => void
 }) {
-  const [query, setQuery] = useState('')
+  const [ownQuery, setOwnQuery] = useState('')
+  const query = props.query ?? ownQuery
+  const setQuery = props.onQuery ?? setOwnQuery
+  const draftKind = props.draftKind
   const [scan, setScan] = useState<ScanState>()
   // Bumped on every lookup and on close, so a late answer for a dismissed scan is ignored.
   const lookupId = useRef(0)
@@ -50,6 +63,7 @@ export function ProductSearch(props: {
 
   const list = (all ?? [])
     .filter((p) => !props.exclude?.includes(p.id))
+    .filter((p) => !props.kinds || props.kinds.includes(p.kind))
     .filter((p) => !(props.gramsOnly && p.portionOnly))
     .filter((p) => !q || p.name.toLowerCase().includes(q) || p.barcode === q)
     .sort((a, b) => b.lastUsedAt - a.lastUsedAt || b.usageCount - a.usageCount || a.name.localeCompare(b.name, 'ru'))
@@ -93,6 +107,7 @@ export function ProductSearch(props: {
         barcode: hit.code,
         prefill: hit.per100g,
         portionGrams: hit.portionGrams,
+        kind: draftKind,
         fromOff: true,
       })
   }
@@ -112,8 +127,8 @@ export function ProductSearch(props: {
       setScan(undefined)
       props.onCreate(
         found
-          ? { name: found.name, barcode: code, prefill: found.per100g, portionGrams: found.portionGrams, fromOff: true }
-          : { name: '', barcode: code },
+          ? { name: found.name, barcode: code, prefill: found.per100g, portionGrams: found.portionGrams, kind: draftKind, fromOff: true }
+          : { name: '', barcode: code, kind: draftKind },
       )
     } catch (e) {
       if (id !== lookupId.current) return
@@ -130,7 +145,7 @@ export function ProductSearch(props: {
       <div class="search">
         <input
           type="search"
-          placeholder="Поиск продукта или рецепта"
+          placeholder={props.placeholder ?? 'Поиск продукта или рецепта'}
           value={query}
           enterKeyHint="search"
           onInput={(e) => {
@@ -140,10 +155,11 @@ export function ProductSearch(props: {
           }}
           onKeyDown={(e) => {
             // Enter with nothing found locally goes straight to Open Food Facts.
-            if (e.key === 'Enter' && list.length === 0) searchInOff()
+            if (e.key === 'Enter' && list.length === 0 && !props.offline) searchInOff()
           }}
           ref={inputRef}
         />
+        {!props.offline && (
         <button class="btn scan-btn" onClick={() => setScan({ step: 'camera' })} aria-label="Сканировать штрихкод">
           <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
             <path
@@ -155,20 +171,23 @@ export function ProductSearch(props: {
             />
           </svg>
         </button>
+        )}
       </div>
-      <div class={props.actions ? 'create-row' : ''}>
-        <button class="list-item create" onClick={() => props.onCreate({ name: query.trim() })}>
-          <span class="li-title">＋ Новый продукт{query.trim() && ` «${query.trim()}»`}</span>
-        </button>
-        {props.actions}
-      </div>
+      <button class="list-item create" onClick={() => props.onCreate({ name: query.trim(), kind: draftKind })}>
+        <span class="li-title">
+          ＋ {props.createLabel ?? 'Новый продукт'}
+          {query.trim() && ` «${query.trim()}»`}
+        </span>
+      </button>
       <ul class="list">
         {list.map((p) => (
           <li key={p.id}>
             <button class="list-item" onClick={() => props.onPick(p)}>
               <span class="li-main">
                 <span class="li-title">
-                  {p.kind === 'recipe' && <span class="badge">рецепт</span>}
+                  {!props.kinds && p.kind !== 'product' && (
+                    <span class="badge">{p.kind === 'recipe' ? 'рецепт' : 'готовое'}</span>
+                  )}
                   {p.name}
                 </span>
                 <span class="li-sub">
@@ -185,7 +204,7 @@ export function ProductSearch(props: {
         <p class="empty">{q ? 'В справочнике ничего не найдено' : props.emptyHint ?? 'Справочник пуст'}</p>
       )}
 
-      {q.length >= 2 && !off && (
+      {q.length >= 2 && !off && !props.offline && (
         <button class="list-item off-search" onClick={searchInOff}>
           <span class="li-title">🔍 Найти «{query.trim()}» в Open Food Facts</span>
         </button>

@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'preact/hooks'
 import type { Nav } from '../App'
-import { db, recipesUsing, saveProduct } from '../db'
+import { db, recipesUsing, saveProduct, type ProductKind } from '../db'
 import { Header, useAutoFocus } from '../ui'
 import { LabelFields, useLabel } from './LabelFields'
 import { OffContribute } from './OffContribute'
 import type { NewProduct } from './ProductSearch'
-
 
 /** "Творог 5%, «Простоквашино»" → name and brand, the way products from OFF are named. */
 export function splitBrand(full: string): { name: string; brand?: string } {
@@ -17,7 +16,14 @@ export function ProductForm(props: { id?: number; draft?: NewProduct; then?: (id
   const draft = props.draft
   const [name, setName] = useState(draft?.name ?? '')
   const [barcode, setBarcode] = useState(draft?.barcode ?? '')
-  const label = useLabel({ values: draft?.prefill, portionGrams: draft?.portionGrams })
+  const [kind, setKind] = useState<Exclude<ProductKind, 'recipe'>>(draft?.kind ?? 'product')
+  const ready = kind === 'ready'
+  // Ready food labels usually give values per portion.
+  const label = useLabel({
+    basis: ready && !draft?.prefill ? 'portion' : 'per100',
+    values: draft?.prefill,
+    portionGrams: draft?.portionGrams,
+  })
   const [error, setError] = useState('')
   const [contributing, setContributing] = useState(false)
   const nameRef = useAutoFocus<HTMLInputElement>(!props.id && !draft?.name)
@@ -28,6 +34,7 @@ export function ProductForm(props: { id?: number; draft?: NewProduct; then?: (id
       if (!p) return
       setName(p.name)
       setBarcode(p.barcode ?? '')
+      if (p.kind !== 'recipe') setKind(p.kind)
       label.load({ basis: p.portionOnly ? 'portion' : 'per100', values: p, portionGrams: p.portionGrams })
     })
   }, [props.id])
@@ -52,7 +59,7 @@ export function ProductForm(props: { id?: number; draft?: NewProduct; then?: (id
         return
       }
     }
-    const id = await saveProduct({ name: name.trim(), barcode: code || undefined, ...label.stored }, props.id)
+    const id = await saveProduct({ name: name.trim(), barcode: code || undefined, ...label.stored }, props.id, kind)
     props.nav.pop()
     props.then?.(id)
   }
@@ -71,14 +78,17 @@ export function ProductForm(props: { id?: number; draft?: NewProduct; then?: (id
 
   return (
     <div class="screen">
-      <Header title={props.id ? 'Продукт' : 'Новый продукт'} onBack={props.nav.pop} />
+      <Header
+        title={props.id ? (ready ? 'Готовая еда' : 'Продукт') : ready ? 'Новая готовая еда' : 'Новый продукт'}
+        onBack={props.nav.pop}
+      />
       <form class="form" onSubmit={save}>
         <label class="field">
           <span class="field-label">Название</span>
           <input
             value={name}
             onInput={(e) => setName(e.currentTarget.value)}
-            placeholder="Творог 5%, «Простоквашино»"
+            placeholder={ready ? 'Бизнес-ланч, паста карбонара «Самокат»' : 'Творог 5%, «Простоквашино»'}
             ref={nameRef}
           />
         </label>
@@ -93,7 +103,11 @@ export function ProductForm(props: { id?: number; draft?: NewProduct; then?: (id
           <p class="muted small">Штрихкода {draft.barcode} нет в базе. Введите КБЖУ с этикетки — в следующий раз продукт найдётся сразу.</p>
         )}
 
-        <LabelFields label={label} focusKcal={!!draft?.name && !draft.prefill} />
+        <LabelFields
+          label={label}
+          focusValues={!!draft?.name && !draft.prefill}
+          portionHint={ready ? 'Вес не обязателен — посчитаем порциями.' : undefined}
+        />
         <label class="field">
           <span class="field-label">Штрихкод (необязательно)</span>
           <input
@@ -118,6 +132,19 @@ export function ProductForm(props: { id?: number; draft?: NewProduct; then?: (id
         {props.id && !label.stored.portionOnly && (
           <button type="button" class="btn" disabled={!valid} onClick={() => setContributing(true)}>
             Отправить в Open Food Facts
+          </button>
+        )}
+        {props.id && (
+          <button
+            type="button"
+            class="btn link-btn"
+            onClick={async () => {
+              const next = ready ? 'product' : 'ready'
+              await db.products.update(props.id!, { kind: next, updatedAt: Date.now() })
+              setKind(next)
+            }}
+          >
+            {ready ? 'Это продукт — перенести в «Продукты»' : 'Это готовая еда — перенести в «Готовую еду»'}
           </button>
         )}
       </form>

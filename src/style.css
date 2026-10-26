@@ -841,22 +841,6 @@ a.btn {
 }
 
 /* Ready meal & portions */
-.create-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-
-.create-row .list-item.create {
-  margin-top: 12px;
-}
-
-.list-item.create.ready .li-sub {
-  color: inherit;
-  opacity: 0.75;
-  font-weight: 400;
-}
-
 .chips {
   display: flex;
   gap: 8px;
@@ -896,4 +880,20 @@ a.btn {
   margin: 1px 0 0;
   accent-color: var(--accent);
   flex: none;
+}
+
+.btn.link-btn {
+  min-height: 40px;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.catalog-tabs {
+  margin-bottom: 10px;
+}
+
+.catalog-tabs button {
+  font-size: 14px;
 }
