@@ -5,6 +5,8 @@ import { db, type Entry } from './db'
 
 const entry = (date: string, grams: number, kcal: number, name = 'Еда'): Entry => ({
   id: 0,
+  uid: `${date}:${name}:${grams}`,
+  updatedAt: 0,
   date,
   productId: 1,
   name,

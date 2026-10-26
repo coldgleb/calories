@@ -22,12 +22,18 @@ export interface Product extends Nutrition {
   portionGrams?: number
   /** The label only gives values per portion, without its weight. */
   portionOnly?: boolean
+  /** Server user id of whoever added it to the shared catalogue; unset until signed in. */
+  author?: string
+  /** 1 when changed locally and not yet sent to the server. */
+  dirty?: 0 | 1
   usageCount: number
   lastUsedAt: number
 }
 
 export interface RecipeIngredient {
+  /** Local key; `uid` identifies the product across devices. */
   productId: number
+  uid?: string
   grams: number
 }
 
@@ -41,13 +47,19 @@ export interface Recipe {
   /** How many portions the dish is split into. */
   portions?: number
   productId: number
+  dirty?: 0 | 1
 }
 
 export interface Entry {
   id: number
+  uid: string
+  updatedAt: number
+  dirty?: 0 | 1
   /** Local date, YYYY-MM-DD. */
   date: string
+  /** Local key of the food (0 for ad hoc); `foodUid` identifies it across devices. */
   productId: number
+  foodUid?: string
   name: string
   /** Snapshot of the product's per-100 g values when it was eaten. */
   per100g: Nutrition
@@ -94,11 +106,30 @@ export interface Settings {
   profile?: Profile
   /** Manual overrides of the computed targets. */
   override?: Partial<Nutrition>
+  updatedAt?: number
+  dirty?: 0 | 1
 }
 
 export interface WeightLog {
+  /** Also the record's uid: one weight per day. */
   date: string
   weightKg: number
+  updatedAt?: number
+  dirty?: 0 | 1
+}
+
+/** A local deletion still to be reported to the server. */
+export interface Tombstone {
+  id: number
+  table: SyncedTable
+  uid: string
+}
+
+export type SyncedTable = 'products' | 'recipes' | 'entries' | 'weights' | 'settings'
+
+export interface Meta {
+  key: string
+  value: unknown
 }
 
 export const db = new Dexie('calories') as Dexie & {
@@ -107,6 +138,8 @@ export const db = new Dexie('calories') as Dexie & {
   entries: EntityTable<Entry, 'id'>
   settings: EntityTable<Settings, 'key'>
   weights: EntityTable<WeightLog, 'date'>
+  tombstones: EntityTable<Tombstone, 'id'>
+  meta: EntityTable<Meta, 'key'>
 }
 
 db.version(1).stores({
@@ -131,6 +164,23 @@ db.version(3)
     await tx.table('recipes').toCollection().modify((r: Recipe) => fillSyncFields(r))
   })
 
+db.version(4)
+  .stores({
+    products: '++id, &uid, name, kind, lastUsedAt, usageCount, barcode, dirty',
+    recipes: '++id, &uid, name, productId, dirty',
+    entries: '++id, &uid, date, productId, dirty',
+    weights: 'date, dirty',
+    settings: 'key, dirty',
+    tombstones: '++id',
+    meta: 'key',
+  })
+  .upgrade(async (tx) => {
+    const uidById = new Map<number, string>()
+    await tx.table('products').each((p: Product) => uidById.set(p.id, p.uid))
+    await tx.table('entries').toCollection().modify((e: Entry) => fillEntry(e, uidById))
+    await tx.table('recipes').toCollection().modify((r: Recipe) => fillIngredients(r, uidById))
+  })
+
 export function newUid(): string {
   if (typeof crypto.randomUUID === 'function') return crypto.randomUUID()
   // randomUUID needs a secure context; plain-http self-hosting still gets random ids.
@@ -144,6 +194,15 @@ export function newUid(): string {
 function fillSyncFields(r: { uid?: string; updatedAt?: number }) {
   r.uid ??= newUid()
   r.updatedAt ??= Date.now()
+}
+
+function fillEntry(e: Entry, uidById: Map<number, string>) {
+  fillSyncFields(e)
+  if (!e.foodUid && e.productId) e.foodUid = uidById.get(e.productId)
+}
+
+function fillIngredients(r: Recipe, uidById: Map<number, string>) {
+  for (const i of r.ingredients) i.uid ??= uidById.get(i.productId)
 }
 
 /** Brings a product from an older version (database or backup file) up to date. */
@@ -188,14 +247,17 @@ export async function addEntry(product: Product, amount: Amount, date: string) {
 
 /** A diary entry for food that isn't (or isn't yet) in the product list; `productId` 0 means ad hoc. */
 export function entryFor(
-  food: Nutrition & PortionInfo & { name: string; id?: number },
+  food: Nutrition & PortionInfo & { name: string; id?: number; uid?: string },
   amount: Amount,
   date: string,
   now = Date.now(),
 ): Entry {
   return {
+    uid: newUid(),
+    updatedAt: now,
     date,
     productId: food.id ?? 0,
+    foodUid: food.uid,
     name: food.name,
     per100g: nutritionOf(food),
     grams: amount.grams,
@@ -255,8 +317,11 @@ export async function saveRecipe(
   r: { name: string; ingredients: RecipeIngredient[]; cookedWeight?: number; portions?: number },
   id?: number,
 ) {
-  const { name, ingredients, cookedWeight, portions } = r
+  const { name, cookedWeight, portions } = r
   const now = Date.now()
+  // Ingredients are referenced by uid on the server, local ids differ between devices.
+  const products = await db.products.bulkGet(r.ingredients.map((i) => i.productId))
+  const ingredients = r.ingredients.map((i, idx) => ({ ...i, uid: products[idx]?.uid ?? i.uid }))
   const values = {
     ...(await computeRecipe(ingredients, cookedWeight)),
     portionGrams: recipePortionGrams(ingredients, cookedWeight, portions),
@@ -321,12 +386,15 @@ export async function exportData() {
 export async function importData(json: unknown) {
   const file = json as { app?: string; data?: Record<string, unknown[]> }
   if (file?.app !== 'calories' || !file.data) throw new Error('Это не файл резервной копии приложения')
+  const uidById = new Map<number, string>()
   await db.transaction('rw', TABLES.map((t) => db.table(t)), async () => {
     for (const t of TABLES) {
       const rows = (file.data![t] ?? []) as Record<string, unknown>[]
       // Backups from older versions lack the sync fields; the schema upgrade only touched the database.
       if (t === 'products') rows.forEach((p) => fillProduct(p as unknown as Product))
-      if (t === 'recipes') rows.forEach((r) => fillSyncFields(r))
+      if (t === 'recipes') rows.forEach((r) => (fillSyncFields(r), fillIngredients(r as unknown as Recipe, uidById)))
+      if (t === 'entries') rows.forEach((e) => fillEntry(e as unknown as Entry, uidById))
+      if (t === 'products') for (const p of rows as unknown as Product[]) uidById.set(p.id, p.uid)
       await db.table(t).clear()
       await db.table(t).bulkAdd(rows)
     }

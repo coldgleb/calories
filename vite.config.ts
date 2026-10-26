@@ -14,6 +14,8 @@ export default defineConfig({
         // The barcode reader's WebAssembly (~1 MB) is cached too, so local barcodes work offline.
         globPatterns: ['**/*.{js,css,html,svg,png,wasm,webmanifest}'],
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+        // On the home server PocketBase shares the origin: leave its API and dashboard alone.
+        navigateFallbackDenylist: [/^\/api\//, /^\/_\//],
       },
       includeAssets: ['icon.svg', 'apple-touch-icon.png'],
       manifest: {

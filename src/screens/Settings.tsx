@@ -2,6 +2,7 @@ import { useEffect, useState } from 'preact/hooks'
 import { ACTIVITY_LEVELS, bmr, tdee, targets, type Nutrition, type Profile, type Sex } from '../calc'
 import { db, effectiveTargets, getSettings, todayISO, useLive } from '../db'
 import { fmt, Header, NumField, parseNum } from '../ui'
+import { Account } from './Account'
 import { DataExport } from './DataExport'
 
 const DEFICITS = [
@@ -69,6 +70,7 @@ export function Settings() {
   return (
     <div class="screen">
       <Header title="Цель" />
+      <Account />
       <form class="form" onSubmit={save}>
         <div class="segmented" role="radiogroup">
           <button type="button" class={sex === 'male' ? 'active' : ''} onClick={() => setSex('male')}>

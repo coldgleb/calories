@@ -2,6 +2,7 @@ import { useRef, useState } from 'preact/hooks'
 import type { Nutrition } from '../calc'
 import { db, useLive, type Product, type ProductKind } from '../db'
 import { lookupBarcode, searchOff, type OffProduct } from '../off'
+import { currentUserId } from '../sync'
 import { fmt, Macros, Sheet, useAutoFocus } from '../ui'
 import { Scanner } from './Scanner'
 
@@ -11,6 +12,8 @@ export interface NewProduct {
   barcode?: string
   prefill?: Nutrition
   portionGrams?: number
+  /** `prefill` holds per-portion values, the portion weight is unknown. */
+  portionOnly?: boolean
   /** Catalogue section the new item goes to. */
   kind?: Exclude<ProductKind, 'recipe'>
   /** Values came from Open Food Facts and should be checked against the label. */
@@ -59,6 +62,7 @@ export function ProductSearch(props: {
   const offAbort = useRef<AbortController>()
   const inputRef = useAutoFocus<HTMLInputElement>(props.autoFocus)
   const all = useLive(() => db.products.toArray())
+  const me = currentUserId()
   const q = query.trim().toLowerCase()
 
   const list = (all ?? [])
@@ -188,6 +192,8 @@ export function ProductSearch(props: {
                   {!props.kinds && p.kind !== 'product' && (
                     <span class="badge">{p.kind === 'recipe' ? 'рецепт' : 'готовое'}</span>
                   )}
+                  {/* In the shared catalogue, tell your own items from other people's. */}
+                  {me && p.kind !== 'recipe' && p.author === me && <span class="badge mine">мой</span>}
                   {p.name}
                 </span>
                 <span class="li-sub">

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'preact/hooks'
 import type { Nav } from '../App'
 import { db, recipesUsing, saveProduct, type ProductKind } from '../db'
+import { currentUserId, isAdmin } from '../sync'
 import { Header, useAutoFocus } from '../ui'
 import { LabelFields, useLabel } from './LabelFields'
 import { OffContribute } from './OffContribute'
@@ -20,12 +21,17 @@ export function ProductForm(props: { id?: number; draft?: NewProduct; then?: (id
   const ready = kind === 'ready'
   // Ready food labels usually give values per portion.
   const label = useLabel({
-    basis: ready && !draft?.prefill ? 'portion' : 'per100',
+    basis: draft?.portionOnly || (ready && !draft?.prefill) ? 'portion' : 'per100',
     values: draft?.prefill,
     portionGrams: draft?.portionGrams,
   })
   const [error, setError] = useState('')
   const [contributing, setContributing] = useState(false)
+  const [author, setAuthor] = useState<string>()
+  const me = currentUserId()
+  // Shared catalogue: only the author or an admin may change someone's food.
+  const readOnly = !!props.id && !!author && author !== me && !isAdmin()
+  const sharedByMe = !!props.id && !!me && author === me
   const nameRef = useAutoFocus<HTMLInputElement>(!props.id && !draft?.name)
 
   useEffect(() => {
@@ -35,6 +41,7 @@ export function ProductForm(props: { id?: number; draft?: NewProduct; then?: (id
       setName(p.name)
       setBarcode(p.barcode ?? '')
       if (p.kind !== 'recipe') setKind(p.kind)
+      setAuthor(p.author)
       label.load({ basis: p.portionOnly ? 'portion' : 'per100', values: p, portionGrams: p.portionGrams })
     })
   }, [props.id])
@@ -71,7 +78,8 @@ export function ProductForm(props: { id?: number; draft?: NewProduct; then?: (id
       setError(`Продукт используется в рецептах: ${used.map((r) => r.name).join(', ')}. Сначала уберите его оттуда.`)
       return
     }
-    if (!confirm(`Удалить «${name}» из справочника? Записи в дневнике останутся.`)) return
+    const where = sharedByMe ? 'из общего справочника — у всех пользователей' : 'из справочника'
+    if (!confirm(`Удалить «${name}» ${where}? Записи в дневнике останутся.`)) return
     await db.products.delete(props.id)
     props.nav.pop()
   }
@@ -83,6 +91,13 @@ export function ProductForm(props: { id?: number; draft?: NewProduct; then?: (id
         onBack={props.nav.pop}
       />
       <form class="form" onSubmit={save}>
+        {readOnly && (
+          <p class="muted small">
+            Это продукт из общего справочника, его добавил другой пользователь. Изменить его может только автор или
+            администратор — но можно сделать свою копию.
+          </p>
+        )}
+        <fieldset class="plain" disabled={readOnly}>
         <label class="field">
           <span class="field-label">Название</span>
           <input
@@ -117,8 +132,29 @@ export function ProductForm(props: { id?: number; draft?: NewProduct; then?: (id
             placeholder="4600000000000"
           />
         </label>
+        </fieldset>
         {error && <p class="error">{error}</p>}
 
+        {readOnly ? (
+          <button
+            type="button"
+            class="btn primary"
+            onClick={() =>
+              props.nav.push({
+                name: 'product',
+                draft: {
+                  name: name.trim(),
+                  kind,
+                  prefill: label.stored,
+                  portionGrams: label.stored.portionGrams,
+                  portionOnly: label.stored.portionOnly,
+                },
+              })
+            }
+          >
+            Сделать свою копию
+          </button>
+        ) : (
         <div class="row">
           {props.id && (
             <button type="button" class="btn danger" onClick={remove}>
@@ -129,12 +165,14 @@ export function ProductForm(props: { id?: number; draft?: NewProduct; then?: (id
             Сохранить
           </button>
         </div>
-        {props.id && !label.stored.portionOnly && (
+        )}
+        {sharedByMe && <p class="muted small">Вы автор: изменения увидят все пользователи.</p>}
+        {props.id && !readOnly && !label.stored.portionOnly && (
           <button type="button" class="btn" disabled={!valid} onClick={() => setContributing(true)}>
             Отправить в Open Food Facts
           </button>
         )}
-        {props.id && (
+        {props.id && !readOnly && (
           <button
             type="button"
             class="btn link-btn"
