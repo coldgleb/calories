@@ -29,3 +29,7 @@ dist-ssr
 # Docker image export
 *.tar
 *.tar.gz
+
+# Server data and secrets
+.env
+pb_data/

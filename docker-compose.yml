@@ -1,8 +1,12 @@
 services:
-  web:
+  calories:
     build: .
-    image: calories-web:latest
-    container_name: calories-web
+    image: calories:latest
+    container_name: calories
     restart: unless-stopped
+    env_file: .env
     ports:
-      - "8080:80"
+      - "8080:8090"
+    volumes:
+      # Database, uploaded files and PocketBase backups. Back this folder up.
+      - ./pb_data:/pb/pb_data

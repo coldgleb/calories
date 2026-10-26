@@ -5,3 +5,5 @@ dist
 .claude
 *.tar
 *.tar.gz
+pb_data
+.env
